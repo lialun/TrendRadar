@@ -58,6 +58,14 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
 
+# Docker-only: install optional local dedup ML dependencies without changing the
+# default project dependency set for non-Docker users.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /app/.venv/bin/python \
+      "numpy>=2,<3" \
+      "torch>=2.5,<3" \
+      "sentence-transformers>=3,<4"
+
 # 再复制项目代码并安装项目本身
 COPY docker/manage.py .
 COPY trendradar/ ./trendradar/
@@ -76,6 +84,8 @@ RUN sed -i 's/\r$//' /entrypoint.sh.tmp && \
 
 ENV PYTHONUNBUFFERED=1 \
     CONFIG_PATH=/app/config/config.yaml \
-    FREQUENCY_WORDS_PATH=/app/config/frequency_words.txt
+    FREQUENCY_WORDS_PATH=/app/config/frequency_words.txt \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -5,7 +5,7 @@
 
 import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .embedder import LocalEmbedder
 from .filters import flatten_candidates, rebuild_filtered_payload
@@ -47,7 +47,7 @@ class DedupService:
         rss_items: Optional[List[Dict]],
         rss_new_items: Optional[List[Dict]],
         standalone_data: Optional[Dict],
-        now_str: str,
+        now_str: Any,
         id_to_name: Optional[Dict] = None,
     ) -> Dict:
         if not self.config.get("ENABLED", False):
@@ -88,19 +88,18 @@ class DedupService:
         rss_items: Optional[List[Dict]],
         rss_new_items: Optional[List[Dict]],
         standalone_data: Optional[Dict],
-        now_str: Optional[str] = None,
+        now_str: Any = None,
         id_to_name: Optional[Dict] = None,
     ) -> int:
         if not self.config.get("ENABLED", False):
             return 0
 
         self._ensure_store()
-        now_dt = (
-            datetime.strptime(now_str, "%Y-%m-%d %H:%M:%S")
-            if now_str
-            else datetime.now()
+        now_value = now_str if now_str is not None else datetime.now()
+        now_ts = DedupStore._to_epoch_seconds(now_value)
+        expires_ts = now_ts + int(
+            timedelta(hours=self.config.get("WINDOW_HOURS", 72)).total_seconds()
         )
-        expires_dt = now_dt + timedelta(hours=self.config.get("WINDOW_HOURS", 72))
         candidates = flatten_candidates(
             stats=stats,
             new_titles=new_titles,
@@ -126,8 +125,8 @@ class DedupService:
                     "normalized_url": candidate.normalized_url,
                     "fact_signature_json": json.dumps(candidate.fact_signature, ensure_ascii=False),
                     "embedding_blob": self._encode_embedding(candidate.embedding),
-                    "sent_at": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    "expires_at": expires_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "sent_at": now_ts,
+                    "expires_at": expires_ts,
                 }
             )
 
