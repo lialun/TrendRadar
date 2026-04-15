@@ -4,5 +4,6 @@
 """
 
 from .config import load_dedup_config
+from .service import DedupService
 
-__all__ = ["load_dedup_config"]
+__all__ = ["load_dedup_config", "DedupService"]

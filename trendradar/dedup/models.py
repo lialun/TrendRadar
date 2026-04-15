@@ -4,7 +4,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -23,3 +23,35 @@ class FactSignature:
             "time": self.time,
             "negation": self.negation,
         }
+
+
+@dataclass
+class CandidateNews:
+    candidate_id: str
+    source_type: str
+    platform_id: str
+    platform_name: str
+    region_type: str
+    match_policy: str
+    title: str
+    url: str = ""
+    normalized_title: str = ""
+    normalized_url: str = ""
+    fact_signature: Dict[str, Any] = field(default_factory=dict)
+    embedding: Optional[List[float]] = None
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class StoredRecord:
+    source_type: str
+    platform_id: str
+    platform_name: str
+    region_type: str
+    match_policy: str
+    title: str
+    normalized_title: str
+    url: str
+    normalized_url: str
+    fact_signature: Dict[str, Any] = field(default_factory=dict)
+    embedding: Optional[List[float]] = None

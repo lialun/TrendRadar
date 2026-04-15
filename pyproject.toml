@@ -20,6 +20,13 @@ dependencies = [
 trendradar = "trendradar.__main__:main"
 trendradar-mcp = "mcp_server.server:run_server"
 
+[project.optional-dependencies]
+dedup-local = [
+    "numpy>=2,<3",
+    "torch>=2.5,<3",
+    "sentence-transformers>=3,<4",
+]
+
 [dependency-groups]
 dev = []
 
