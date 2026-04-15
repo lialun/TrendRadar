@@ -241,6 +241,7 @@ class NewsAnalyzer:
 
         # 初始化存储管理器（使用 AppContext）
         self._init_storage_manager()
+        self.dedup_service = self.ctx.create_dedup_service()
         # 注意：update_info 由 main() 函数设置，避免重复请求远程版本
 
     def _init_storage_manager(self) -> None:
@@ -924,10 +925,27 @@ class NewsAnalyzer:
         has_notification = self._has_notification_configured()
         cfg = self.ctx.config
 
+        dedup_now = self.ctx.get_time()
+        filtered_payload = self.dedup_service.filter_before_send(
+            stats=stats,
+            new_titles=new_titles,
+            rss_items=rss_items,
+            rss_new_items=rss_new_items,
+            standalone_data=standalone_data,
+            now_str=dedup_now,
+            id_to_name=id_to_name,
+        )
+        stats = filtered_payload["stats"]
+        new_titles = filtered_payload["new_titles"]
+        rss_items = filtered_payload["rss_items"]
+        rss_new_items = filtered_payload["rss_new_items"]
+        standalone_data = filtered_payload["standalone_data"]
+
         # 检查是否有有效内容（热榜或RSS）
         has_news_content = self._has_valid_content(stats, new_titles)
         has_rss_content = bool(rss_items and len(rss_items) > 0)
-        has_any_content = has_news_content or has_rss_content
+        standalone_count = self._count_standalone_items(standalone_data)
+        has_any_content = has_news_content or has_rss_content or standalone_count > 0
 
         # 计算热榜匹配条数
         news_count = sum(len(stat.get("titles", [])) for stat in stats) if stats else 0
@@ -944,7 +962,9 @@ class NewsAnalyzer:
                 content_parts.append(f"热榜 {news_count} 条")
             if rss_count > 0:
                 content_parts.append(f"RSS {rss_count} 条")
-            total_count = news_count + rss_count
+            if standalone_count > 0:
+                content_parts.append(f"独立展示区 {standalone_count} 条")
+            total_count = news_count + rss_count + standalone_count
             print(f"[推送] 准备发送：{' + '.join(content_parts)}，合计 {total_count} 条")
 
             # 调度系统决策
@@ -999,6 +1019,15 @@ class NewsAnalyzer:
 
             # 记录推送成功
             if any(results.values()):
+                self.dedup_service.record_after_send(
+                    stats=stats,
+                    new_titles=new_titles,
+                    rss_items=rss_items,
+                    rss_new_items=rss_new_items,
+                    standalone_data=standalone_data,
+                    now_str=dedup_now,
+                    id_to_name=id_to_name,
+                )
                 if schedule.once_push and schedule.period_key:
                     scheduler = self.ctx.create_scheduler()
                     date_str = self.ctx.format_date()
@@ -1027,6 +1056,17 @@ class NewsAnalyzer:
                 )
 
         return False
+
+    @staticmethod
+    def _count_standalone_items(standalone_data: Optional[Dict]) -> int:
+        if not standalone_data:
+            return 0
+        total = 0
+        for platform in standalone_data.get("platforms", []):
+            total += len(platform.get("items", []))
+        for feed in standalone_data.get("rss_feeds", []):
+            total += len(feed.get("items", []))
+        return total
 
     def _initialize_and_check_config(self) -> None:
         """通用初始化和配置检查"""

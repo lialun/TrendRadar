@@ -220,7 +220,7 @@ def _flatten_rss_group_candidates(candidates: List[CandidateNews], groups: List[
     for group_idx, stat in enumerate(groups):
         for title_idx, title_data in enumerate(stat.get("titles", [])):
             source_name = title_data.get("source_name", "")
-            source_id = title_data.get("feed_id", source_name)
+            source_id = title_data.get("source_id") or title_data.get("feed_id") or source_name
             title = title_data.get("title", "")
             candidates.append(
                 _build_candidate(

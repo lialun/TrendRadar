@@ -346,6 +346,7 @@ def count_word_frequency(
                 word_stats[group_key]["titles"][source_id].append(
                     {
                         "title": title,
+                        "source_id": source_id,
                         "source_name": source_name,
                         "first_time": first_time,
                         "last_time": last_time,
@@ -644,6 +645,8 @@ def count_rss_frequency(
 
                 title_data = {
                     "title": title,
+                    "feed_id": item.get("feed_id", ""),
+                    "source_id": item.get("feed_id", ""),
                     "source_name": item.get("feed_name", item.get("feed_id", "RSS")),
                     "time_display": time_display,
                     "count": 1,  # RSS 条目通常只出现一次

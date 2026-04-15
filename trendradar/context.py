@@ -40,6 +40,7 @@ from trendradar.notification import (
 )
 from trendradar.ai import AITranslator
 from trendradar.ai.filter import AIFilter, AIFilterResult
+from trendradar.dedup import DedupService
 from trendradar.storage import get_storage_manager
 
 
@@ -75,6 +76,7 @@ class AppContext:
         self.config = config
         self._storage_manager = None
         self._scheduler = None
+        self._dedup_service = None
 
     # === 配置访问 ===
 
@@ -206,6 +208,18 @@ class AppContext:
                 timezone=self.timezone,
             )
         return self._storage_manager
+
+    def create_dedup_service(self) -> DedupService:
+        """创建通知去重服务（延迟初始化，单例）"""
+        if self._dedup_service is None:
+            storage_config = self.config.get("STORAGE", {})
+            local_config = storage_config.get("LOCAL", {})
+            data_dir = local_config.get("DATA_DIR", "output")
+            self._dedup_service = DedupService(
+                base_dir=data_dir,
+                config=self.config.get("DEDUP", {"ENABLED": False}),
+            )
+        return self._dedup_service
 
     def get_output_path(self, subfolder: str, filename: str) -> str:
         """获取输出路径（扁平化结构：output/类型/日期/文件名）"""
@@ -1052,6 +1066,7 @@ class AppContext:
 
                 title_entry = {
                     "title": item.get("title", ""),
+                    "source_id": item.get("source_id", ""),
                     "source_name": item.get("source_name", ""),
                     "url": item.get("url", ""),
                     "mobile_url": item.get("mobile_url", ""),

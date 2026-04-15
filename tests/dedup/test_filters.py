@@ -45,3 +45,29 @@ class FilterTest(unittest.TestCase):
 
         self.assertEqual(1, len(payload["stats"][0]["titles"]))
         self.assertEqual([], payload["standalone_data"]["platforms"])
+
+    def test_rss_candidates_prefer_source_id_for_platform_id(self):
+        rss_items = [
+            {
+                "word": "AI",
+                "count": 1,
+                "position": 0,
+                "titles": [
+                    {
+                        "title": "OpenAI 发布新模型",
+                        "url": "https://example.com/1",
+                        "source_name": "Hacker News",
+                        "source_id": "hacker-news",
+                    }
+                ],
+            }
+        ]
+
+        candidates = flatten_candidates(
+            stats=[],
+            new_titles={},
+            rss_items=rss_items,
+            rss_new_items=None,
+            standalone_data=None,
+        )
+        self.assertEqual("hacker-news", candidates[0].platform_id)
