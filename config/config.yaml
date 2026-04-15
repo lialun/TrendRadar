@@ -313,6 +313,18 @@ notification:
                                       #   false → 永远不推送（无论调度怎么设置）
                                       #   true  → 由调度的 push 字段控制何时推送
 
+  # 本地推送去重
+  # Docker-only：模型目录通过 volume 挂载到容器
+  dedup:
+    enabled: false
+    window_hours: 72
+    top_k: 20
+    rerank_threshold: 0.82
+    strict_time_conflict: true
+    model_paths:
+      embed: "/models/dedup-embed"
+      rerank: "/models/dedup-rerank"
+
   # 推送渠道配置
   channels:
     feishu:

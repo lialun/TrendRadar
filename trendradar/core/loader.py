@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 import yaml
 
 from .config import parse_multi_account_config, validate_paired_configs
+from trendradar.dedup.config import load_dedup_config
 from trendradar.utils.time import DEFAULT_TIMEZONE
 
 
@@ -601,6 +602,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # 存储配置
     config["STORAGE"] = _load_storage_config(config_data)
+
+    # 本地通知去重配置
+    config["DEDUP"] = load_dedup_config(config_data)
 
     # Webhook 配置
     config.update(_load_webhook_config(config_data))

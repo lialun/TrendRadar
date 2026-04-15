@@ -7,7 +7,16 @@ TrendRadar - 热点新闻聚合与分析工具
   trendradar                  # 安装后执行
 """
 
-from trendradar.context import AppContext
-
 __version__ = "6.6.1"
 __all__ = ["AppContext", "__version__"]
+
+
+def __getattr__(name: str):
+    # Keep package import light so isolated submodules (for example
+    # trendradar.dedup.*) can be imported and tested without pulling in the
+    # whole AI/runtime dependency graph.
+    if name == "AppContext":
+        from trendradar.context import AppContext
+
+        return AppContext
+    raise AttributeError(f"module 'trendradar' has no attribute {name!r}")
