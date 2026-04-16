@@ -58,16 +58,15 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
 
-# Docker-only: install optional local dedup ML dependencies without changing the
-# default project dependency set for non-Docker users.
+# 再复制项目代码并安装项目本身
+COPY docker/manage.py .
+COPY trendradar/ ./trendradar/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --python /app/.venv/bin/python \
-      "numpy>=2,<3" \
-      "sentence-transformers>=3,<4"
+    uv sync --locked --no-dev
 
-# Install CPU-only torch wheels. PyPI Linux wheels pull in CUDA/NVIDIA runtime
-# dependencies by default, which makes the image much larger than needed for
-# local dedup inference.
+# Docker-only: install optional local dedup ML dependencies after the final
+# project sync. Otherwise uv sync will prune them from the environment.
+# Install CPU-only torch wheels to avoid pulling CUDA/NVIDIA runtime packages.
 RUN --mount=type=cache,target=/root/.cache/uv \
     case ${TARGETARCH} in \
     amd64) \
@@ -84,13 +83,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     echo "Unsupported architecture for CPU-only torch: ${TARGETARCH}"; \
     exit 1; \
     ;; \
-    esac
-
-# 再复制项目代码并安装项目本身
-COPY docker/manage.py .
-COPY trendradar/ ./trendradar/
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    esac && \
+    uv pip install --python /app/.venv/bin/python \
+      "numpy>=2,<3" \
+      "sentence-transformers>=3,<4"
 
 ENV PATH="/app/.venv/bin:$PATH"
 
