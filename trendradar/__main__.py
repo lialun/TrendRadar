@@ -811,7 +811,15 @@ class NewsAnalyzer:
         standalone_data: Optional[Dict] = None,
         schedule: ResolvedSchedule = None,
         rss_new_urls: Optional[set] = None,
-    ) -> Tuple[List[Dict], Optional[str], Optional[AIAnalysisResult], Optional[List[Dict]]]:
+    ) -> Tuple[
+        List[Dict],
+        Optional[str],
+        Optional[AIAnalysisResult],
+        Optional[List[Dict]],
+        Dict,
+        Optional[List[Dict]],
+        Optional[Dict],
+    ]:
         """统一的分析流水线：数据处理 → 统计计算（关键词/AI筛选）→ AI分析 → HTML生成"""
 
         # 根据筛选策略选择数据处理方式
@@ -856,6 +864,23 @@ class NewsAnalyzer:
                 self.ctx.weight_config,
                 self.ctx.rank_threshold,
             )
+
+        dedup_now = self.ctx.get_time()
+        filtered_payload = self.dedup_service.filter_before_send(
+            stats=stats,
+            new_titles=new_titles,
+            rss_items=rss_items,
+            rss_new_items=rss_new_items,
+            standalone_data=standalone_data,
+            now_str=dedup_now,
+            id_to_name=id_to_name,
+        )
+        stats = filtered_payload["stats"]
+        new_titles = filtered_payload["new_titles"]
+        rss_items = filtered_payload["rss_items"]
+        rss_new_items = filtered_payload["rss_new_items"]
+        standalone_data = filtered_payload["standalone_data"]
+        total_titles = sum(len(stat.get("titles", [])) for stat in stats) if stats else 0
 
         # AI 分析（如果启用，用于 HTML 报告）
         ai_result = None
@@ -903,7 +928,7 @@ class NewsAnalyzer:
                 frequency_file=self.frequency_file,
             )
 
-        return stats, html_file, ai_result, rss_items
+        return stats, html_file, ai_result, rss_items, new_titles, rss_new_items, standalone_data
 
     def _send_notification_if_needed(
         self,
@@ -926,20 +951,6 @@ class NewsAnalyzer:
         cfg = self.ctx.config
 
         dedup_now = self.ctx.get_time()
-        filtered_payload = self.dedup_service.filter_before_send(
-            stats=stats,
-            new_titles=new_titles,
-            rss_items=rss_items,
-            rss_new_items=rss_new_items,
-            standalone_data=standalone_data,
-            now_str=dedup_now,
-            id_to_name=id_to_name,
-        )
-        stats = filtered_payload["stats"]
-        new_titles = filtered_payload["new_titles"]
-        rss_items = filtered_payload["rss_items"]
-        rss_new_items = filtered_payload["rss_new_items"]
-        standalone_data = filtered_payload["standalone_data"]
 
         # 检查是否有有效内容（热榜或RSS）
         has_news_content = self._has_valid_content(stats, new_titles)
@@ -1597,7 +1608,15 @@ class NewsAnalyzer:
                     all_results, historical_id_to_name, historical_title_info, raw_rss_items
                 )
 
-                stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+                (
+                    stats,
+                    html_file,
+                    ai_result,
+                    rss_items,
+                    historical_new_titles,
+                    rss_new_items,
+                    standalone_data,
+                ) = self._run_analysis_pipeline(
                     all_results,
                     self.report_mode,
                     historical_title_info,
@@ -1641,7 +1660,15 @@ class NewsAnalyzer:
                     all_results, historical_id_to_name, historical_title_info, raw_rss_items
                 )
 
-                stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+                (
+                    stats,
+                    html_file,
+                    ai_result,
+                    rss_items,
+                    historical_new_titles,
+                    rss_new_items,
+                    standalone_data,
+                ) = self._run_analysis_pipeline(
                     all_results,
                     self.report_mode,
                     historical_title_info,
@@ -1669,7 +1696,15 @@ class NewsAnalyzer:
                 standalone_data = self._prepare_standalone_data(
                     results, id_to_name, title_info, raw_rss_items
                 )
-                stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+                (
+                    stats,
+                    html_file,
+                    ai_result,
+                    rss_items,
+                    new_titles,
+                    rss_new_items,
+                    standalone_data,
+                ) = self._run_analysis_pipeline(
                     results,
                     self.report_mode,
                     title_info,
@@ -1691,7 +1726,15 @@ class NewsAnalyzer:
             standalone_data = self._prepare_standalone_data(
                 results, id_to_name, title_info, raw_rss_items
             )
-            stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+            (
+                stats,
+                html_file,
+                ai_result,
+                rss_items,
+                new_titles,
+                rss_new_items,
+                standalone_data,
+            ) = self._run_analysis_pipeline(
                 results,
                 self.report_mode,
                 title_info,
@@ -1714,9 +1757,6 @@ class NewsAnalyzer:
 
         # 发送通知
         if mode_strategy["should_send_notification"]:
-            standalone_data = self._prepare_standalone_data(
-                results, id_to_name, title_info, raw_rss_items
-            )
             self._send_notification_if_needed(
                 stats,
                 mode_strategy["report_type"],

@@ -1,7 +1,10 @@
 
 原项目<a href="https://github.com/sansan0/TrendRadar" title="TrendRadar">
 TrendRader</a>
-增加推送消息去重
+
+## 相比原版的变更
+1. 增加推送消息去重
+2. 只支持Docker部署
 
 ## 本地推送去重模型
 
