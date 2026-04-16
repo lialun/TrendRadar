@@ -316,11 +316,29 @@ notification:
   # 本地推送去重
   # Docker-only：模型目录通过 volume 挂载到容器
   dedup:
-    enabled: false
-    window_hours: 72
-    top_k: 20
-    rerank_threshold: 0.82
-    strict_time_conflict: true
+    enabled: false                    # 是否启用本地推送去重
+                                      # true  → 在推送前做去重，再生成 AI 分析和 HTML
+                                      # false → 完全跳过去重逻辑
+
+    debug: false                     # 是否输出详细去重日志
+                                     # false → 只打印摘要日志（候选数 / 过滤数 / 剩余数）
+                                     # true  → 额外打印逐条过滤原因，便于排查误杀/漏杀
+
+    window_hours: 72                 # 去重时间窗口（小时）
+                                     # 只和最近 N 小时已推送过的内容比较
+                                     # 例如 72 = 3 天内重复新闻不再推送
+
+    top_k: 20                        # 语义召回候选数
+                                     # embedding 先从历史记录里找最像的前 N 条，再交给 reranker 精排
+                                     # 值越大召回越全，但推理更慢；推荐先保持 10~30
+
+    rerank_threshold: 0.82           # reranker 判重阈值（0~1）
+                                     # 分数越高，越严格；越低，越容易把相似新闻判为重复
+                                     # 如果误杀较多，就调高；如果漏掉重复较多，就调低
+
+    strict_time_conflict: true       # 是否把“时间事实冲突”视为不同新闻
+                                     # true  → 标题里时间范围不同（如“今天” vs “本月”）时更倾向保留
+                                     # false → 放宽时间差异，更倾向把同一事件的不同时间表述判为重复
     model_paths:
       embed: "/models/dedup-embed"
       rerank: "/models/dedup-rerank"

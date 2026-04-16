@@ -46,6 +46,7 @@ DEDUP_WINDOW_HOURS=72
 DEDUP_TOP_K=20
 DEDUP_RERANK_THRESHOLD=0.82
 DEDUP_STRICT_TIME_CONFLICT=true
+DEDUP_DEBUG=false
 ```
 
 ### 去重策略
@@ -53,3 +54,8 @@ DEDUP_STRICT_TIME_CONFLICT=true
 - 热榜主区 / 新增区 / RSS 区：本地语义去重
 - 独立展示区：同源标题或 URL 完全一致才去重
 - 如果同一条内容已经在复杂区展示，独立展示区不会再展示一次
+
+### 日志
+
+- 默认会打印每轮去重摘要：候选数、过滤数、剩余数、写库数
+- 设置 `DEDUP_DEBUG=true` 后，会额外打印逐条过滤原因

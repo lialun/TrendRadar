@@ -51,6 +51,7 @@ class DedupService:
         id_to_name: Optional[Dict] = None,
     ) -> Dict:
         if not self.config.get("ENABLED", False):
+            print("[Dedup] disabled, skipping dedup")
             return {
                 "stats": stats or [],
                 "new_titles": new_titles or {},
@@ -69,17 +70,32 @@ class DedupService:
         )
         history_records = self._load_recent_records(now_str)
         self._attach_embeddings(candidates)
+        input_counts = self._count_candidates(candidates)
+        filtered_counts = {
+            "exact": 0,
+            "semantic": 0,
+            "standalone_same_source": 0,
+            "standalone_seen_in_complex": 0,
+        }
+        self._log_filter_start(input_counts, len(history_records))
 
         accepted_candidates: List[CandidateNews] = []
         accepted_ids = set()
 
         for candidate in candidates:
-            if self._is_duplicate(candidate, accepted_candidates, history_records):
+            duplicate_info = self._check_duplicate(candidate, accepted_candidates, history_records)
+            if duplicate_info:
+                reason = duplicate_info["reason"]
+                filtered_counts[reason] = filtered_counts.get(reason, 0) + 1
+                self._log_debug_duplicate(candidate, duplicate_info)
                 continue
             accepted_candidates.append(candidate)
             accepted_ids.add(candidate.candidate_id)
 
-        return rebuild_filtered_payload(candidates, accepted_ids)
+        result = rebuild_filtered_payload(candidates, accepted_ids)
+        remaining_counts = self._count_remaining_payload(result)
+        self._log_filter_end(filtered_counts, remaining_counts)
+        return result
 
     def record_after_send(
         self,
@@ -130,29 +146,55 @@ class DedupService:
                 }
             )
 
-        return self.store.insert_records(records)
+        inserted = self.store.insert_records(records)
+        print(
+            f"[Dedup] recorded: total={inserted} "
+            f"hotlist={sum(1 for c in candidates if c.region_type == 'hotlist')} "
+            f"new_items={sum(1 for c in candidates if c.region_type == 'new_items')} "
+            f"rss={sum(1 for c in candidates if c.region_type == 'rss')} "
+            f"rss_new_items={sum(1 for c in candidates if c.region_type == 'rss_new_items')} "
+            f"standalone={sum(1 for c in candidates if c.region_type == 'standalone')}"
+        )
+        return inserted
 
-    def _is_duplicate(
+    def _check_duplicate(
         self,
         candidate: CandidateNews,
         accepted_candidates: List[CandidateNews],
         history_records: List[StoredRecord],
-    ) -> bool:
+    ) -> Optional[Dict[str, Any]]:
         for accepted in accepted_candidates:
             require_same_source = (
                 candidate.region_type == "standalone"
                 and accepted.region_type == "standalone"
             )
             if is_exact_duplicate(candidate.__dict__, accepted.__dict__, require_same_source=require_same_source):
-                return True
+                if candidate.region_type == "standalone" and accepted.region_type == "standalone":
+                    reason = "standalone_same_source"
+                elif candidate.region_type == "standalone":
+                    reason = "standalone_seen_in_complex"
+                else:
+                    reason = "exact"
+                return {
+                    "reason": reason,
+                    "scope": "accepted",
+                    "matched_title": accepted.title,
+                    "matched_region": accepted.region_type,
+                }
 
         for record in history_records:
             require_same_source = candidate.region_type == "standalone"
             if is_exact_duplicate(candidate.__dict__, record.__dict__, require_same_source=require_same_source):
-                return True
+                reason = "standalone_same_source" if candidate.region_type == "standalone" else "exact"
+                return {
+                    "reason": reason,
+                    "scope": "history",
+                    "matched_title": record.title,
+                    "matched_region": record.region_type,
+                }
 
         if candidate.region_type == "standalone":
-            return False
+            return None
 
         semantic_candidates = []
         for accepted in accepted_candidates:
@@ -197,9 +239,14 @@ class DedupService:
                 rerank_threshold=self.config.get("RERANK_THRESHOLD", 0.82),
                 strict_time_conflict=self.config.get("STRICT_TIME_CONFLICT", True),
             ):
-                return True
+                return {
+                    "reason": "semantic",
+                    "scope": "semantic",
+                    "matched_title": recalled_item.get("title", ""),
+                    "score": round(score, 4),
+                }
 
-        return False
+        return None
 
     def _load_recent_records(self, now_str: str) -> List[StoredRecord]:
         self._ensure_store()
@@ -242,6 +289,16 @@ class DedupService:
         if not self.config.get("ENABLED", False):
             return
 
+        print(
+            "[Dedup] enabled="
+            f"{self.config.get('ENABLED', False)} "
+            f"debug={self.config.get('DEBUG', False)} "
+            f"window={self.config.get('WINDOW_HOURS', 72)}h "
+            f"top_k={self.config.get('TOP_K', 20)} "
+            f"rerank_threshold={self.config.get('RERANK_THRESHOLD', 0.82)} "
+            f"strict_time_conflict={self.config.get('STRICT_TIME_CONFLICT', True)}"
+        )
+
         if not self.embedder.is_available:
             error = getattr(self.embedder, "load_error", "") or "model unavailable"
             print(f"[Dedup] embedding model unavailable, semantic dedup disabled: {error}")
@@ -271,3 +328,85 @@ class DedupService:
         if isinstance(raw_value, str):
             return json.loads(raw_value)
         return {}
+
+    def _log_filter_start(self, input_counts: Dict[str, int], history_count: int) -> None:
+        print(
+            "[Dedup] candidates: "
+            f"hotlist={input_counts['hotlist']} "
+            f"new_items={input_counts['new_items']} "
+            f"rss={input_counts['rss']} "
+            f"rss_new_items={input_counts['rss_new_items']} "
+            f"standalone={input_counts['standalone']} "
+            f"total={input_counts['total']} "
+            f"history={history_count}"
+        )
+
+    def _log_filter_end(self, filtered_counts: Dict[str, int], remaining_counts: Dict[str, int]) -> None:
+        print(
+            "[Dedup] filtered: "
+            f"exact={filtered_counts['exact']} "
+            f"semantic={filtered_counts['semantic']} "
+            f"standalone_same_source={filtered_counts['standalone_same_source']} "
+            f"standalone_seen_in_complex={filtered_counts['standalone_seen_in_complex']}"
+        )
+        print(
+            "[Dedup] remaining: "
+            f"hotlist={remaining_counts['hotlist']} "
+            f"new_items={remaining_counts['new_items']} "
+            f"rss={remaining_counts['rss']} "
+            f"rss_new_items={remaining_counts['rss_new_items']} "
+            f"standalone={remaining_counts['standalone']} "
+            f"total={remaining_counts['total']}"
+        )
+
+    def _log_debug_duplicate(self, candidate: CandidateNews, duplicate_info: Dict[str, Any]) -> None:
+        if not self.config.get("DEBUG", False):
+            return
+        extra = ""
+        if "score" in duplicate_info:
+            extra = f" score={duplicate_info['score']}"
+        print(
+            "[Dedup][DEBUG] drop "
+            f"region={candidate.region_type} "
+            f"source={candidate.platform_id} "
+            f"title={candidate.title!r} "
+            f"reason={duplicate_info['reason']} "
+            f"scope={duplicate_info.get('scope', '')} "
+            f"matched_title={duplicate_info.get('matched_title', '')!r}"
+            f"{extra}"
+        )
+
+    @staticmethod
+    def _count_candidates(candidates: List[CandidateNews]) -> Dict[str, int]:
+        counts = {
+            "hotlist": 0,
+            "new_items": 0,
+            "rss": 0,
+            "rss_new_items": 0,
+            "standalone": 0,
+            "total": len(candidates),
+        }
+        for candidate in candidates:
+            counts[candidate.region_type] = counts.get(candidate.region_type, 0) + 1
+        return counts
+
+    @staticmethod
+    def _count_remaining_payload(payload: Dict[str, Any]) -> Dict[str, int]:
+        hotlist = sum(len(stat.get("titles", [])) for stat in payload.get("stats", []))
+        new_items = sum(len(titles) for titles in payload.get("new_titles", {}).values())
+        rss = sum(len(stat.get("titles", [])) for stat in (payload.get("rss_items") or []))
+        rss_new_items = sum(len(stat.get("titles", [])) for stat in (payload.get("rss_new_items") or []))
+        standalone = 0
+        standalone_data = payload.get("standalone_data") or {}
+        for platform in standalone_data.get("platforms", []):
+            standalone += len(platform.get("items", []))
+        for feed in standalone_data.get("rss_feeds", []):
+            standalone += len(feed.get("items", []))
+        return {
+            "hotlist": hotlist,
+            "new_items": new_items,
+            "rss": rss,
+            "rss_new_items": rss_new_items,
+            "standalone": standalone,
+            "total": hotlist + new_items + rss + rss_new_items + standalone,
+        }

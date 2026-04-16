@@ -52,6 +52,7 @@ def load_dedup_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     strict_time_conflict = _get_env_bool(
         "DEDUP_STRICT_TIME_CONFLICT", dedup.get("strict_time_conflict", True)
     )
+    debug = _get_env_bool("DEDUP_DEBUG", dedup.get("debug", False))
 
     return {
         "ENABLED": enabled,
@@ -59,6 +60,7 @@ def load_dedup_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
         "TOP_K": max(1, top_k),
         "RERANK_THRESHOLD": max(0.0, min(1.0, rerank_threshold)),
         "STRICT_TIME_CONFLICT": strict_time_conflict,
+        "DEBUG": debug,
         "EMBED_MODEL_PATH": _get_env_str(
             "DEDUP_EMBED_MODEL_PATH", model_paths.get("embed", "/models/dedup-embed")
         ),

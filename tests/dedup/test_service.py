@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from trendradar.dedup.service import DedupService
 
@@ -141,3 +142,61 @@ class DedupServiceTest(unittest.TestCase):
             )
 
             self.assertEqual(2, len(filtered["standalone_data"]["platforms"]))
+
+    def test_filter_logs_summary_and_debug_reason(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = DedupService.from_components(
+                base_dir=tmpdir,
+                config={
+                    "ENABLED": True,
+                    "WINDOW_HOURS": 72,
+                    "TOP_K": 20,
+                    "RERANK_THRESHOLD": 0.82,
+                    "STRICT_TIME_CONFLICT": True,
+                    "DEBUG": True,
+                },
+                embedder=FakeEmbedder(),
+                reranker=FakeReranker(),
+            )
+
+            stats = [
+                {
+                    "word": "AI",
+                    "count": 1,
+                    "position": 0,
+                    "titles": [
+                        {
+                            "title": "OpenAI 发布新模型",
+                            "url": "https://example.com/1",
+                            "source_name": "微博",
+                            "source_id": "weibo",
+                        }
+                    ],
+                }
+            ]
+            standalone_data = {
+                "platforms": [
+                    {
+                        "id": "zhihu",
+                        "name": "知乎",
+                        "items": [{"title": "OpenAI 发布新模型", "url": "https://example.com/1"}],
+                    }
+                ],
+                "rss_feeds": [],
+            }
+
+            with patch("builtins.print") as print_mock:
+                service.filter_before_send(
+                    stats=stats,
+                    new_titles={},
+                    rss_items=None,
+                    rss_new_items=None,
+                    standalone_data=standalone_data,
+                    now_str="2026-04-15 10:00:00",
+                )
+
+            printed = "\n".join(" ".join(str(arg) for arg in call.args) for call in print_mock.call_args_list)
+            self.assertIn("[Dedup] candidates:", printed)
+            self.assertIn("[Dedup] filtered:", printed)
+            self.assertIn("[Dedup] remaining:", printed)
+            self.assertIn("[Dedup][DEBUG] drop", printed)
