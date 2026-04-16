@@ -332,7 +332,7 @@ notification:
                                      # embedding 先从历史记录里找最像的前 N 条，再交给 reranker 精排
                                      # 值越大召回越全，但推理更慢；推荐先保持 10~30
 
-    rerank_threshold: 0.95           # reranker 判重阈值（0~1）
+    rerank_threshold: 0.98           # reranker 判重阈值（0~1）
                                       # 分数越高，越严格；越低，越容易把相似新闻判为重复
                                       # 如果误杀较多，就调高；如果漏掉重复较多，就调低
 
