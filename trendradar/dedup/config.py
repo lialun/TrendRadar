@@ -47,7 +47,7 @@ def load_dedup_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     window_hours = _get_env_int("DEDUP_WINDOW_HOURS", dedup.get("window_hours", 72))
     top_k = _get_env_int("DEDUP_TOP_K", dedup.get("top_k", 20))
     rerank_threshold = _get_env_float(
-        "DEDUP_RERANK_THRESHOLD", dedup.get("rerank_threshold", 0.82)
+        "DEDUP_RERANK_THRESHOLD", dedup.get("rerank_threshold", 0.95)
     )
     strict_time_conflict = _get_env_bool(
         "DEDUP_STRICT_TIME_CONFLICT", dedup.get("strict_time_conflict", True)

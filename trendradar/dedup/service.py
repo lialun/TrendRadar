@@ -236,7 +236,7 @@ class DedupService:
                 },
                 candidate=recalled_item,
                 rerank_score=score,
-                rerank_threshold=self.config.get("RERANK_THRESHOLD", 0.82),
+                rerank_threshold=self.config.get("RERANK_THRESHOLD", 0.95),
                 strict_time_conflict=self.config.get("STRICT_TIME_CONFLICT", True),
             ):
                 return {
@@ -295,7 +295,7 @@ class DedupService:
             f"debug={self.config.get('DEBUG', False)} "
             f"window={self.config.get('WINDOW_HOURS', 72)}h "
             f"top_k={self.config.get('TOP_K', 20)} "
-            f"rerank_threshold={self.config.get('RERANK_THRESHOLD', 0.82)} "
+            f"rerank_threshold={self.config.get('RERANK_THRESHOLD', 0.95)} "
             f"strict_time_conflict={self.config.get('STRICT_TIME_CONFLICT', True)}"
         )
 

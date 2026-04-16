@@ -30,7 +30,7 @@ class DedupConfigTest(unittest.TestCase):
         self.assertTrue(cfg["ENABLED"])
         self.assertEqual(cfg["WINDOW_HOURS"], 72)
         self.assertEqual(cfg["TOP_K"], 20)
-        self.assertEqual(cfg["RERANK_THRESHOLD"], 0.82)
+        self.assertEqual(cfg["RERANK_THRESHOLD"], 0.95)
         self.assertTrue(cfg["STRICT_TIME_CONFLICT"])
         self.assertEqual(cfg["EMBED_MODEL_PATH"], "/models/dedup-embed")
         self.assertEqual(cfg["RERANK_MODEL_PATH"], "/models/dedup-rerank")
