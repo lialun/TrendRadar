@@ -30,14 +30,6 @@ models/
 - https://huggingface.co/intfloat/multilingual-e5-small
 - https://huggingface.co/BAAI/bge-reranker-base
 
-### Docker 挂载
-
-`docker/docker-compose.yml` 已增加：
-
-- `../models:/models:ro`
-- `DEDUP_EMBED_MODEL_PATH=/models/dedup-embed`
-- `DEDUP_RERANK_MODEL_PATH=/models/dedup-rerank`
-
 默认开启 72 小时去重：
 
 ```text
@@ -55,7 +47,3 @@ DEDUP_DEBUG=false
 - 独立展示区：同源标题或 URL 完全一致才去重
 - 如果同一条内容已经在复杂区展示，独立展示区不会再展示一次
 
-### 日志
-
-- 默认会打印每轮去重摘要：候选数、过滤数、剩余数、写库数
-- 设置 `DEDUP_DEBUG=true` 后，会额外打印逐条过滤原因

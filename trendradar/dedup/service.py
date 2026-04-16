@@ -51,7 +51,7 @@ class DedupService:
         id_to_name: Optional[Dict] = None,
     ) -> Dict:
         if not self.config.get("ENABLED", False):
-            print("[Dedup] disabled, skipping dedup")
+            print("[Dedup][skip] 通知去重未启用，直接保留原始内容")
             return {
                 "stats": stats or [],
                 "new_titles": new_titles or {},
@@ -147,14 +147,20 @@ class DedupService:
             )
 
         inserted = self.store.insert_records(records)
-        print(
-            f"[Dedup] recorded: total={inserted} "
-            f"hotlist={sum(1 for c in candidates if c.region_type == 'hotlist')} "
-            f"new_items={sum(1 for c in candidates if c.region_type == 'new_items')} "
-            f"rss={sum(1 for c in candidates if c.region_type == 'rss')} "
-            f"rss_new_items={sum(1 for c in candidates if c.region_type == 'rss_new_items')} "
-            f"standalone={sum(1 for c in candidates if c.region_type == 'standalone')}"
-        )
+        hotlist_count = sum(1 for c in candidates if c.region_type == 'hotlist')
+        new_items_count = sum(1 for c in candidates if c.region_type == 'new_items')
+        rss_count = sum(1 for c in candidates if c.region_type == 'rss')
+        rss_new_items_count = sum(1 for c in candidates if c.region_type == 'rss_new_items')
+        standalone_count = sum(1 for c in candidates if c.region_type == 'standalone')
+        window_hours = self.config.get("WINDOW_HOURS", 72)
+
+        print(f"[Dedup][store] 已记录 {inserted} 条已发送内容，用于后续 {window_hours} 小时去重")
+        if inserted > 0:
+            print(f"  - 热榜：{hotlist_count} 条")
+            print(f"  - 新增：{new_items_count} 条")
+            print(f"  - RSS：{rss_count} 条")
+            print(f"  - RSS 新增：{rss_new_items_count} 条")
+            print(f"  - 独立展示区：{standalone_count} 条")
         return inserted
 
     def _check_duplicate(
@@ -289,23 +295,28 @@ class DedupService:
         if not self.config.get("ENABLED", False):
             return
 
-        print(
-            "[Dedup] enabled="
-            f"{self.config.get('ENABLED', False)} "
-            f"debug={self.config.get('DEBUG', False)} "
-            f"window={self.config.get('WINDOW_HOURS', 72)}h "
-            f"top_k={self.config.get('TOP_K', 20)} "
-            f"rerank_threshold={self.config.get('RERANK_THRESHOLD', 0.95)} "
-            f"strict_time_conflict={self.config.get('STRICT_TIME_CONFLICT', True)}"
-        )
+        window_hours = self.config.get('WINDOW_HOURS', 72)
+        top_k = self.config.get('TOP_K', 20)
+        rerank_threshold = self.config.get('RERANK_THRESHOLD', 0.98)
+        strict_time = "是" if self.config.get('STRICT_TIME_CONFLICT', True) else "否"
+        debug = "是" if self.config.get('DEBUG', False) else "否"
+
+        print(f"[Dedup][init] 已启用通知去重")
+        print(f"  - 时间窗口：{window_hours} 小时（在此时间内的内容会被检查重复）")
+        print(f"  - 语义相似度阈值：{rerank_threshold}（越高越严格，越不容易判为重复）")
+        print(f"  - 召回候选数：{top_k} 条（从历史中选出最相似的 {top_k} 条进行精确比对）")
+        print(f"  - 严格时间冲突检查：{strict_time}")
+        print(f"  - 调试日志：{debug}")
 
         if not self.embedder.is_available:
-            error = getattr(self.embedder, "load_error", "") or "model unavailable"
-            print(f"[Dedup] embedding model unavailable, semantic dedup disabled: {error}")
+            error = getattr(self.embedder, "load_error", "") or "模型不可用"
+            print(f"[Dedup][init] ⚠️  语义去重不可用：embedding 模型加载失败（{error}）")
+            print(f"[Dedup][init] 当前仅使用精确去重（标题/URL 完全相同才判为重复）")
 
         if not self.reranker.is_available:
-            error = getattr(self.reranker, "load_error", "") or "model unavailable"
-            print(f"[Dedup] reranker model unavailable, semantic dedup disabled: {error}")
+            error = getattr(self.reranker, "load_error", "") or "模型不可用"
+            print(f"[Dedup][init] ⚠️  语义去重不可用：reranker 模型加载失败（{error}）")
+            print(f"[Dedup][init] 当前仅使用精确去重（标题/URL 完全相同才判为重复）")
 
     @staticmethod
     def _encode_embedding(embedding):
@@ -330,51 +341,61 @@ class DedupService:
         return {}
 
     def _log_filter_start(self, input_counts: Dict[str, int], history_count: int) -> None:
-        print(
-            "[Dedup] candidates: "
-            f"hotlist={input_counts['hotlist']} "
-            f"new_items={input_counts['new_items']} "
-            f"rss={input_counts['rss']} "
-            f"rss_new_items={input_counts['rss_new_items']} "
-            f"standalone={input_counts['standalone']} "
-            f"total={input_counts['total']} "
-            f"history={history_count}"
-        )
+        print(f"[Dedup][scan] 本轮待检查 {input_counts['total']} 条内容")
+        print(f"  - 热榜：{input_counts['hotlist']} 条")
+        print(f"  - 新增：{input_counts['new_items']} 条")
+        print(f"  - RSS：{input_counts['rss']} 条")
+        print(f"  - RSS 新增：{input_counts['rss_new_items']} 条")
+        print(f"  - 独立展示区：{input_counts['standalone']} 条")
+        print(f"  - 历史记录：{history_count} 条")
 
     def _log_filter_end(self, filtered_counts: Dict[str, int], remaining_counts: Dict[str, int]) -> None:
-        print(
-            "[Dedup] filtered: "
-            f"exact={filtered_counts['exact']} "
-            f"semantic={filtered_counts['semantic']} "
-            f"standalone_same_source={filtered_counts['standalone_same_source']} "
-            f"standalone_seen_in_complex={filtered_counts['standalone_seen_in_complex']}"
-        )
-        print(
-            "[Dedup] remaining: "
-            f"hotlist={remaining_counts['hotlist']} "
-            f"new_items={remaining_counts['new_items']} "
-            f"rss={remaining_counts['rss']} "
-            f"rss_new_items={remaining_counts['rss_new_items']} "
-            f"standalone={remaining_counts['standalone']} "
-            f"total={remaining_counts['total']}"
-        )
+        total_filtered = sum(filtered_counts.values())
+        print(f"[Dedup][result] 本轮共过滤 {total_filtered} 条重复内容")
+        if total_filtered > 0:
+            print(f"  - 精确重复（标题/URL 完全相同）：{filtered_counts['exact']} 条")
+            print(f"  - 语义重复（内容相似）：{filtered_counts['semantic']} 条")
+            print(f"  - 独立区同源重复：{filtered_counts['standalone_same_source']} 条")
+            print(f"  - 独立区与主区域重复：{filtered_counts['standalone_seen_in_complex']} 条")
+
+        print(f"[Dedup][result] 本轮保留 {remaining_counts['total']} 条内容")
+        if remaining_counts['total'] > 0:
+            print(f"  - 热榜：{remaining_counts['hotlist']} 条")
+            print(f"  - 新增：{remaining_counts['new_items']} 条")
+            print(f"  - RSS：{remaining_counts['rss']} 条")
+            print(f"  - RSS 新增：{remaining_counts['rss_new_items']} 条")
+            print(f"  - 独立展示区：{remaining_counts['standalone']} 条")
 
     def _log_debug_duplicate(self, candidate: CandidateNews, duplicate_info: Dict[str, Any]) -> None:
         if not self.config.get("DEBUG", False):
             return
-        extra = ""
+
+        # 区域类型映射
+        region_map = {
+            "hotlist": "热榜",
+            "new_items": "新增",
+            "rss": "RSS",
+            "rss_new_items": "RSS新增",
+            "standalone": "独立展示区"
+        }
+        region_name = region_map.get(candidate.region_type, candidate.region_type)
+
+        # 原因映射
+        reason_map = {
+            "exact": "精确重复",
+            "semantic": "语义重复",
+            "standalone_same_source": "独立区同源重复",
+            "standalone_seen_in_complex": "独立区与主区域重复"
+        }
+        reason_name = reason_map.get(duplicate_info['reason'], duplicate_info['reason'])
+
+        # 构建日志
+        print(f"[Dedup][debug] 已过滤 [{region_name}] {candidate.platform_id}")
+        print(f"  标题：{candidate.title}")
+        print(f"  原因：{reason_name}")
+        print(f"  匹配：{duplicate_info.get('matched_title', '')}")
         if "score" in duplicate_info:
-            extra = f" score={duplicate_info['score']}"
-        print(
-            "[Dedup][DEBUG] drop "
-            f"region={candidate.region_type} "
-            f"source={candidate.platform_id} "
-            f"title={candidate.title!r} "
-            f"reason={duplicate_info['reason']} "
-            f"scope={duplicate_info.get('scope', '')} "
-            f"matched_title={duplicate_info.get('matched_title', '')!r}"
-            f"{extra}"
-        )
+            print(f"  相似度：{duplicate_info['score']}")
 
     @staticmethod
     def _count_candidates(candidates: List[CandidateNews]) -> Dict[str, int]:
