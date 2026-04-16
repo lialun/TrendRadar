@@ -1,6 +1,6 @@
 services:
   trendradar:
-    image: wantcat/trendradar:latest
+    image: lialun/trendradar:latest
     container_name: trendradar
     restart: unless-stopped
 
@@ -75,7 +75,6 @@ services:
     volumes:
       - ../config:/app/config:ro
       - ../output:/app/output
-      - ../models:/models:ro
 
     environment:
       - TZ=Asia/Shanghai

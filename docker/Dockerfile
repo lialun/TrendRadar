@@ -63,8 +63,28 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /app/.venv/bin/python \
       "numpy>=2,<3" \
-      "torch>=2.5,<3" \
       "sentence-transformers>=3,<4"
+
+# Install CPU-only torch wheels. PyPI Linux wheels pull in CUDA/NVIDIA runtime
+# dependencies by default, which makes the image much larger than needed for
+# local dedup inference.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    case ${TARGETARCH} in \
+    amd64) \
+    uv pip install --python /app/.venv/bin/python \
+      --index-url https://download.pytorch.org/whl/cpu \
+      "torch==2.3.0+cpu"; \
+    ;; \
+    arm64) \
+    uv pip install --python /app/.venv/bin/python \
+      --index-url https://download.pytorch.org/whl/cpu \
+      "torch==2.3.0"; \
+    ;; \
+    *) \
+    echo "Unsupported architecture for CPU-only torch: ${TARGETARCH}"; \
+    exit 1; \
+    ;; \
+    esac
 
 # 再复制项目代码并安装项目本身
 COPY docker/manage.py .
