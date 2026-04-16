@@ -9,7 +9,12 @@ from typing import Any, Dict, List, Optional
 
 from .embedder import LocalEmbedder
 from .filters import flatten_candidates, rebuild_filtered_payload
-from .matcher import is_exact_duplicate, is_semantic_duplicate, select_top_k_candidates
+from .matcher import (
+    has_same_dedup_key,
+    is_exact_duplicate,
+    is_semantic_duplicate,
+    select_top_k_candidates,
+)
 from .models import CandidateNews, StoredRecord
 from .reranker import LocalReranker
 from .store import DedupStore
@@ -110,12 +115,6 @@ class DedupService:
         if not self.config.get("ENABLED", False):
             return 0
 
-        self._ensure_store()
-        now_value = now_str if now_str is not None else datetime.now()
-        now_ts = DedupStore._to_epoch_seconds(now_value)
-        expires_ts = now_ts + int(
-            timedelta(hours=self.config.get("WINDOW_HOURS", 72)).total_seconds()
-        )
         candidates = flatten_candidates(
             stats=stats,
             new_titles=new_titles,
@@ -125,28 +124,7 @@ class DedupService:
             id_to_name=id_to_name,
         )
         self._attach_embeddings(candidates)
-
-        records = []
-        for candidate in candidates:
-            records.append(
-                {
-                    "source_type": candidate.source_type,
-                    "platform_id": candidate.platform_id,
-                    "platform_name": candidate.platform_name,
-                    "region_type": candidate.region_type,
-                    "match_policy": candidate.match_policy,
-                    "title": candidate.title,
-                    "normalized_title": candidate.normalized_title,
-                    "url": candidate.url,
-                    "normalized_url": candidate.normalized_url,
-                    "fact_signature_json": json.dumps(candidate.fact_signature, ensure_ascii=False),
-                    "embedding_blob": self._encode_embedding(candidate.embedding),
-                    "sent_at": now_ts,
-                    "expires_at": expires_ts,
-                }
-            )
-
-        inserted = self.store.insert_records(records)
+        inserted = self._insert_candidates(candidates, now_str)
         hotlist_count = sum(1 for c in candidates if c.region_type == 'hotlist')
         new_items_count = sum(1 for c in candidates if c.region_type == 'new_items')
         rss_count = sum(1 for c in candidates if c.region_type == 'rss')
@@ -163,6 +141,29 @@ class DedupService:
             print(f"  - 独立展示区：{standalone_count} 条")
         return inserted
 
+    def check_realtime_candidate(
+        self,
+        candidate: CandidateNews,
+        now_str: Any,
+    ) -> Optional[Dict[str, Any]]:
+        if not self.config.get("ENABLED", False):
+            return None
+
+        history_records = self._load_recent_records(now_str)
+        self._attach_embeddings([candidate])
+        return self._check_duplicate(candidate, [], history_records)
+
+    def record_realtime_candidate(
+        self,
+        candidate: CandidateNews,
+        now_str: Any = None,
+    ) -> int:
+        if not self.config.get("ENABLED", False):
+            return 0
+
+        self._attach_embeddings([candidate])
+        return self._insert_candidates([candidate], now_str)
+
     def _check_duplicate(
         self,
         candidate: CandidateNews,
@@ -170,6 +171,13 @@ class DedupService:
         history_records: List[StoredRecord],
     ) -> Optional[Dict[str, Any]]:
         for accepted in accepted_candidates:
+            if has_same_dedup_key(candidate.__dict__, accepted.__dict__):
+                return {
+                    "reason": "dedup_key",
+                    "scope": "accepted",
+                    "matched_title": accepted.title,
+                    "matched_region": accepted.region_type,
+                }
             require_same_source = (
                 candidate.region_type == "standalone"
                 and accepted.region_type == "standalone"
@@ -189,6 +197,13 @@ class DedupService:
                 }
 
         for record in history_records:
+            if has_same_dedup_key(candidate.__dict__, record.__dict__):
+                return {
+                    "reason": "dedup_key",
+                    "scope": "history",
+                    "matched_title": record.title,
+                    "matched_region": record.region_type,
+                }
             require_same_source = candidate.region_type == "standalone"
             if is_exact_duplicate(candidate.__dict__, record.__dict__, require_same_source=require_same_source):
                 reason = "standalone_same_source" if candidate.region_type == "standalone" else "exact"
@@ -267,6 +282,7 @@ class DedupService:
                     region_type=row.get("region_type", ""),
                     match_policy=row.get("match_policy", ""),
                     title=row.get("title", ""),
+                    dedup_key=row.get("dedup_key", ""),
                     normalized_title=row.get("normalized_title", ""),
                     url=row.get("url", ""),
                     normalized_url=row.get("normalized_url", ""),
@@ -290,6 +306,35 @@ class DedupService:
         if self.store is None:
             self.store = DedupStore(self.base_dir)
             self.store.initialize()
+
+    def _insert_candidates(self, candidates: List[CandidateNews], now_str: Any = None) -> int:
+        self._ensure_store()
+        now_value = now_str if now_str is not None else datetime.now()
+        now_ts = DedupStore._to_epoch_seconds(now_value)
+        expires_ts = now_ts + int(
+            timedelta(hours=self.config.get("WINDOW_HOURS", 72)).total_seconds()
+        )
+        records = []
+        for candidate in candidates:
+            records.append(
+                {
+                    "source_type": candidate.source_type,
+                    "platform_id": candidate.platform_id,
+                    "platform_name": candidate.platform_name,
+                    "region_type": candidate.region_type,
+                    "match_policy": candidate.match_policy,
+                    "title": candidate.title,
+                    "dedup_key": candidate.dedup_key,
+                    "normalized_title": candidate.normalized_title,
+                    "url": candidate.url,
+                    "normalized_url": candidate.normalized_url,
+                    "fact_signature_json": json.dumps(candidate.fact_signature, ensure_ascii=False),
+                    "embedding_blob": self._encode_embedding(candidate.embedding),
+                    "sent_at": now_ts,
+                    "expires_at": expires_ts,
+                }
+            )
+        return self.store.insert_records(records)
 
     def _log_model_availability(self) -> None:
         if not self.config.get("ENABLED", False):
@@ -353,6 +398,7 @@ class DedupService:
         total_filtered = sum(filtered_counts.values())
         print(f"[Dedup][result] 本轮共过滤 {total_filtered} 条重复内容")
         if total_filtered > 0:
+            print(f"  - 消息ID重复：{filtered_counts.get('dedup_key', 0)} 条")
             print(f"  - 精确重复（标题/URL 完全相同）：{filtered_counts['exact']} 条")
             print(f"  - 语义重复（内容相似）：{filtered_counts['semantic']} 条")
             print(f"  - 独立区同源重复：{filtered_counts['standalone_same_source']} 条")
@@ -382,6 +428,7 @@ class DedupService:
 
         # 原因映射
         reason_map = {
+            "dedup_key": "消息ID重复",
             "exact": "精确重复",
             "semantic": "语义重复",
             "standalone_same_source": "独立区同源重复",

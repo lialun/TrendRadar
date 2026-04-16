@@ -4,6 +4,7 @@
 """
 
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
@@ -15,21 +16,78 @@ class DedupStore:
         self.db_path = self.base_dir / "state" / "notification_dedup.db"
         self.schema_path = Path(__file__).with_name("schema.sql")
         self._conn: sqlite3.Connection | None = None
+        self.busy_timeout_ms = 30_000
+        self.max_write_retries = 5
+        self.retry_base_delay_seconds = 0.1
 
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._run_write_with_retry(self._initialize_once)
+
+    def _initialize_once(self) -> None:
         conn = self._get_connection()
+        self._ensure_base_table(conn)
+        self._migrate_schema(conn)
         with open(self.schema_path, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
         conn.commit()
 
+    def _ensure_base_table(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sent_notification_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type TEXT NOT NULL,
+                platform_id TEXT NOT NULL,
+                platform_name TEXT DEFAULT '',
+                region_type TEXT NOT NULL,
+                match_policy TEXT NOT NULL,
+                title TEXT NOT NULL,
+                dedup_key TEXT DEFAULT '',
+                normalized_title TEXT NOT NULL,
+                url TEXT DEFAULT '',
+                normalized_url TEXT DEFAULT '',
+                fact_signature_json TEXT DEFAULT '{}',
+                embedding_blob BLOB,
+                sent_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(sent_notification_records)")
+        }
+        if "dedup_key" not in columns:
+            conn.execute(
+                "ALTER TABLE sent_notification_records "
+                "ADD COLUMN dedup_key TEXT DEFAULT ''"
+            )
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dedup_key "
+            "ON sent_notification_records(dedup_key)"
+        )
+
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(
+                str(self.db_path),
+                timeout=self.busy_timeout_ms / 1000,
+            )
             self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
         return self._conn
 
     def purge_expired(self, now_str: str) -> int:
+        return self._run_write_with_retry(lambda: self._purge_expired_once(now_str))
+
+    def _purge_expired_once(self, now_str: str) -> int:
         now_ts = self._to_epoch_seconds(now_str)
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -61,15 +119,18 @@ class DedupStore:
     def insert_records(self, records: List[Dict]) -> int:
         if not records:
             return 0
+        return self._run_write_with_retry(lambda: self._insert_records_once(records))
+
+    def _insert_records_once(self, records: List[Dict]) -> int:
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.executemany(
             """
             INSERT INTO sent_notification_records (
                 source_type, platform_id, platform_name, region_type, match_policy,
-                title, normalized_title, url, normalized_url, fact_signature_json,
+                title, dedup_key, normalized_title, url, normalized_url, fact_signature_json,
                 embedding_blob, sent_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -79,6 +140,7 @@ class DedupStore:
                     record.get("region_type", ""),
                     record.get("match_policy", ""),
                     record.get("title", ""),
+                    record.get("dedup_key", ""),
                     record.get("normalized_title", ""),
                     record.get("url", ""),
                     record.get("normalized_url", ""),
@@ -92,6 +154,31 @@ class DedupStore:
         )
         conn.commit()
         return len(records)
+
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def _run_write_with_retry(self, func):
+        for attempt in range(self.max_write_retries):
+            try:
+                return func()
+            except sqlite3.OperationalError as exc:
+                if not self._is_retryable_lock_error(exc) or attempt == self.max_write_retries - 1:
+                    raise
+                if self._conn is not None:
+                    self._conn.rollback()
+                time.sleep(self.retry_base_delay_seconds * (2 ** attempt))
+
+    @staticmethod
+    def _is_retryable_lock_error(exc: sqlite3.OperationalError) -> bool:
+        message = str(exc).lower()
+        return (
+            "database is locked" in message
+            or "database table is locked" in message
+            or "database schema is locked" in message
+        )
 
     @staticmethod
     def _to_epoch_seconds(value: Any) -> int:

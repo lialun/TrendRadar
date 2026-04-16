@@ -12,6 +12,10 @@ case "${RUN_MODE:-cron}" in
     echo "🔄 单次执行"
     exec python -m trendradar
     ;;
+"websocket")
+    echo "🔌 启动 WebSocket 常驻服务"
+    exec python -m trendradar.websocket.service
+    ;;
 "cron")
     # 校验 CRON_SCHEDULE 格式（仅允许 cron 表达式合法字符）
     CRON_EXPR="${CRON_SCHEDULE:-*/30 * * * *}"

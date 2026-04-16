@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS sent_notification_records (
     region_type TEXT NOT NULL,
     match_policy TEXT NOT NULL,
     title TEXT NOT NULL,
+    dedup_key TEXT DEFAULT '',
     normalized_title TEXT NOT NULL,
     url TEXT DEFAULT '',
     normalized_url TEXT DEFAULT '',
@@ -21,6 +22,9 @@ CREATE INDEX IF NOT EXISTS idx_dedup_expires_at
 
 CREATE INDEX IF NOT EXISTS idx_dedup_source_region
     ON sent_notification_records(source_type, platform_id, region_type);
+
+CREATE INDEX IF NOT EXISTS idx_dedup_key
+    ON sent_notification_records(dedup_key);
 
 CREATE INDEX IF NOT EXISTS idx_dedup_normalized_url
     ON sent_notification_records(normalized_url);

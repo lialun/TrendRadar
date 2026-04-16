@@ -9,11 +9,20 @@ from typing import Any, Dict, Iterable, List
 from .fact_extractor import has_fact_conflict
 
 
+def has_same_dedup_key(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+    left_key = (left.get("dedup_key") or "").strip()
+    right_key = (right.get("dedup_key") or "").strip()
+    return bool(left_key and right_key and left_key == right_key)
+
+
 def is_exact_duplicate(
     left: Dict[str, Any],
     right: Dict[str, Any],
     require_same_source: bool = False,
 ) -> bool:
+    if has_same_dedup_key(left, right):
+        return True
+
     if require_same_source and not _same_source(left, right):
         return False
 

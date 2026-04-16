@@ -14,6 +14,7 @@ import yaml
 from .config import parse_multi_account_config, validate_paired_configs
 from trendradar.dedup.config import load_dedup_config
 from trendradar.utils.time import DEFAULT_TIMEZONE
+from trendradar.websocket.config import load_websocket_config
 
 
 def _get_env_bool(key: str) -> Optional[bool]:
@@ -608,6 +609,13 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # Webhook 配置
     config.update(_load_webhook_config(config_data))
+
+    # WebSocket 配置
+    config["WEBSOCKET"] = load_websocket_config(
+        config_data,
+        config_dir=str(Path(config_path).parent),
+        default_alert_webhook=config.get("FEISHU_WEBHOOK_URL", ""),
+    )
 
     # 打印通知渠道配置来源
     _print_notification_sources(config)

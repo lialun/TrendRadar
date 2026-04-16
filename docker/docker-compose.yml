@@ -58,6 +58,26 @@ services:
       - CRON_SCHEDULE=${CRON_SCHEDULE:-*/30 * * * *}
       - RUN_MODE=${RUN_MODE:-cron}
       - IMMEDIATE_RUN=${IMMEDIATE_RUN:-true}
+      - WEBSOCKET_ENABLED=false
+
+  trendradar-websocket:
+    image: lialun/trendradar:latest
+    container_name: trendradar-websocket
+    restart: unless-stopped
+
+    volumes:
+      - ../config:/app/config:ro
+      - ../output:/app/output
+      - ../models:/models:ro
+
+    environment:
+      - TZ=Asia/Shanghai
+      - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL:-}
+      - WEBSOCKET_ALERT_WEBHOOK_URL=${WEBSOCKET_ALERT_WEBHOOK_URL:-}
+      - DEDUP_EMBED_MODEL_PATH=${DEDUP_EMBED_MODEL_PATH:-/models/dedup-embed}
+      - DEDUP_RERANK_MODEL_PATH=${DEDUP_RERANK_MODEL_PATH:-/models/dedup-rerank}
+      - RUN_MODE=websocket
+      - WEBSOCKET_ENABLED=true
 
   trendradar-mcp:
     image: wantcat/trendradar-mcp:latest

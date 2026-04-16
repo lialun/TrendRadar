@@ -34,6 +34,7 @@ class CandidateNews:
     region_type: str
     match_policy: str
     title: str
+    dedup_key: str = ""
     url: str = ""
     normalized_title: str = ""
     normalized_url: str = ""
@@ -53,5 +54,6 @@ class StoredRecord:
     normalized_title: str
     url: str
     normalized_url: str
+    dedup_key: str = ""
     fact_signature: Dict[str, Any] = field(default_factory=dict)
     embedding: Optional[List[float]] = None

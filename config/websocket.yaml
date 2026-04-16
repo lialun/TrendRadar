@@ -1,0 +1,38 @@
+# ═══════════════════════════════════════════════════════════════
+#                WebSocket 实时推送配置
+# ═══════════════════════════════════════════════════════════════
+
+enabled: true
+
+channels:
+  jin10:
+    enabled: true
+    url: "wss://wss-flash-2.jin10.com/"
+    is_vip: false
+    heartbeat_interval: 30
+    heartbeat_timeout: 10
+    reconnect:
+      initial_delay: 1
+      max_delay: 60
+      backoff_factor: 2.0
+
+processing:
+  queue_max_size: 1000
+
+logging:
+  level: "INFO"
+  file: "output/logs/websocket.log"
+  max_size_mb: 10
+  backup_count: 5
+
+monitoring:
+  health_log_interval_seconds: 300
+  health_check_interval_seconds: 60
+
+alerts:
+  enabled: true
+  failure_threshold: 5
+  outage_seconds: 600
+  protocol_error_threshold: 20
+  queue_backlog_threshold: 100
+  cooldown_seconds: 1800

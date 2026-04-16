@@ -28,6 +28,7 @@ from trendradar.storage import convert_crawl_results_to_news_data
 from trendradar.utils.time import DEFAULT_TIMEZONE, is_within_days, calculate_days_old
 from trendradar.ai import AIAnalyzer, AIAnalysisResult
 from trendradar.core.scheduler import ResolvedSchedule
+from trendradar.websocket.runtime import build_websocket_runtime
 
 
 def _parse_version(version_str: str) -> Tuple[int, int, int]:
@@ -242,6 +243,11 @@ class NewsAnalyzer:
         # 初始化存储管理器（使用 AppContext）
         self._init_storage_manager()
         self.dedup_service = self.ctx.create_dedup_service()
+        self.websocket_runtime = build_websocket_runtime(
+            self.ctx,
+            self.dedup_service,
+            proxy_url=self.proxy_url,
+        )
         # 注意：update_info 由 main() 函数设置，避免重复请求远程版本
 
     def _init_storage_manager(self) -> None:
@@ -258,6 +264,30 @@ class NewsAnalyzer:
         retention_days = self.ctx.config.get("STORAGE", {}).get("RETENTION_DAYS", 0)
         if retention_days > 0:
             print(f"数据保留天数: {retention_days} 天")
+
+    def _start_websocket_runtime(self) -> None:
+        if self.websocket_runtime is None:
+            return
+        try:
+            started = self.websocket_runtime.start()
+            if started:
+                print("[WebSocket] 实时运行时已启动")
+            else:
+                print("[WebSocket] 未启用或无可用渠道，跳过启动")
+        except Exception as e:
+            print(f"[WebSocket] 启动失败，将继续执行主流程: {e}")
+            if self.ctx.config.get("DEBUG", False):
+                raise
+
+    def _stop_websocket_runtime(self) -> None:
+        if self.websocket_runtime is None:
+            return
+        try:
+            self.websocket_runtime.stop()
+        except Exception as e:
+            print(f"[WebSocket] 停止失败: {e}")
+            if self.ctx.config.get("DEBUG", False):
+                raise
 
     def _detect_docker_environment(self) -> bool:
         """检测是否运行在 Docker 容器中"""
@@ -1787,6 +1817,7 @@ class NewsAnalyzer:
         """执行分析流程"""
         try:
             self._initialize_and_check_config()
+            self._start_websocket_runtime()
 
             mode_strategy = self._get_mode_strategy()
 
@@ -1808,6 +1839,7 @@ class NewsAnalyzer:
             if self.ctx.config.get("DEBUG", False):
                 raise
         finally:
+            self._stop_websocket_runtime()
             # 清理资源（包括过期数据清理和数据库连接关闭）
             self.ctx.cleanup()
 
