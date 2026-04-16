@@ -96,6 +96,8 @@ class RealtimeFeishuSender:
         first_line += f" <font color='grey'>- {time_display}</font>"
         if event_title and event_content:
             return f"{first_line}\n{event_content}"
+        if event.detail_url and display_text:
+            return f"[{channel_label}]{f'[{type_label}]' if type_label else ''}[{display_text}]({event.detail_url}) <font color='grey'>- {time_display}</font>"
         return first_line
 
     def _send_one(self, webhook_url: str, content: str) -> bool:
