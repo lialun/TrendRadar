@@ -316,7 +316,7 @@ notification:
   # 本地推送去重
   # Docker-only：模型目录通过 volume 挂载到容器
   dedup:
-    enabled: false                    # 是否启用本地推送去重
+    enabled: true                     # 是否启用本地推送去重
                                       # true  → 在推送前做去重，再生成 AI 分析和 HTML
                                       # false → 完全跳过去重逻辑
 
