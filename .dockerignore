@@ -4,6 +4,7 @@
 README.md
 
 output/
+models/
 
 __pycache__/
 *.pyc
