@@ -6,6 +6,7 @@ Main-process websocket runtime.
 from __future__ import annotations
 
 import asyncio
+import json
 import queue
 import threading
 import time
@@ -19,6 +20,95 @@ from trendradar.websocket.models import RealtimeEvent
 from trendradar.websocket.pipeline.alerts import WebSocketAlertManager
 from trendradar.websocket.pipeline.dedup import RealtimeDedupAdapter
 from trendradar.websocket.pipeline.feishu import RealtimeFeishuSender
+
+
+def _serialize_log_value(value) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, (dict, list, tuple)):
+        if not value:
+            return "{}" if isinstance(value, dict) else "[]"
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+    text = str(value).strip()
+    if not text:
+        return "-"
+    return text
+
+
+def _format_log_field(name: str, value) -> str:
+    rendered = _serialize_log_value(value).replace("\r\n", "\n").replace("\r", "\n")
+    return f"  {name}={rendered.replace('\n', '\n    ')}"
+
+
+def _preview_text(value: str, limit: int = 80) -> str:
+    text = " ".join((value or "").split()).strip()
+    if not text:
+        return "-"
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(1, limit - 3)]}..."
+
+
+def _build_duplicate_log(event: RealtimeEvent, candidate, duplicate: Dict[str, object]) -> str:
+    lines = [
+        (
+            "[websocket][pipeline] duplicate channel="
+            f"{event.channel} dedup_key={event.dedup_key or '-'} "
+            f"reason={duplicate.get('reason', 'unknown')} scope={duplicate.get('scope', '-')}"
+        ),
+        _format_log_field("event_type", event.event_type),
+        _format_log_field("source_message_id", event.source_message_id),
+        _format_log_field("published_at", event.published_at),
+        _format_log_field("detail_url", event.detail_url),
+        _format_log_field("meta", event.meta),
+        _format_log_field("title", event.title),
+        _format_log_field("content", event.content),
+        _format_log_field("dedup_text", candidate.title),
+        _format_log_field("normalized_title", candidate.normalized_title),
+        _format_log_field("fact_signature", candidate.fact_signature),
+        _format_log_field("matched_title", duplicate.get("matched_title", "")),
+        _format_log_field("matched_region", duplicate.get("matched_region", "")),
+        _format_log_field("matched_platform_id", duplicate.get("matched_platform_id", "")),
+        _format_log_field("matched_dedup_key", duplicate.get("matched_dedup_key", "")),
+        _format_log_field("matched_url", duplicate.get("matched_url", "")),
+        _format_log_field("matched_normalized_title", duplicate.get("matched_normalized_title", "")),
+        _format_log_field("matched_fact_signature", duplicate.get("matched_fact_signature", {})),
+    ]
+    if "score" in duplicate:
+        lines.append(_format_log_field("score", duplicate.get("score")))
+    return "\n".join(lines)
+
+
+def _build_send_failed_log(event: RealtimeEvent, candidate, sender: RealtimeFeishuSender) -> str:
+    lines = [
+        (
+            "[websocket][pipeline] send_failed channel="
+            f"{event.channel} dedup_key={event.dedup_key or '-'} "
+            f"sender_label={sender.label}"
+        ),
+        _format_log_field("event_type", event.event_type),
+        _format_log_field("source_message_id", event.source_message_id),
+        _format_log_field("published_at", event.published_at),
+        _format_log_field("detail_url", event.detail_url),
+        _format_log_field("sender_enabled", sender.enabled),
+        _format_log_field("sender_targets", sender.target_count),
+        _format_log_field("meta", event.meta),
+        _format_log_field("title", event.title),
+        _format_log_field("content", event.content),
+        _format_log_field("dedup_text", candidate.title),
+        _format_log_field("normalized_title", candidate.normalized_title),
+        _format_log_field("fact_signature", candidate.fact_signature),
+    ]
+    return "\n".join(lines)
+
+
+def _build_sent_log(event: RealtimeEvent, candidate) -> str:
+    return (
+        "[websocket][pipeline] sent channel="
+        f"{event.channel} dedup_key={event.dedup_key or '-'} "
+        f"summary={_preview_text(candidate.title)}"
+    )
 
 
 class RealtimePipeline:
@@ -52,34 +142,18 @@ class RealtimePipeline:
         candidate, duplicate = self.dedup_adapter.check(event, now)
         if duplicate:
             self.stats["filtered_duplicate"] += 1
-            self.logger.info(
-                "[websocket][pipeline] duplicate channel=%s dedup_key=%s reason=%s title=%s",
-                event.channel,
-                event.dedup_key or "-",
-                duplicate.get("reason", "unknown"),
-                candidate.title[:80],
-            )
+            self.logger.info(_build_duplicate_log(event, candidate, duplicate))
             return False
 
         sent = self.feishu_sender.send_event(event)
         if not sent:
             self.stats["sent_failed"] += 1
-            self.logger.warning(
-                "[websocket][pipeline] send_failed channel=%s dedup_key=%s title=%s",
-                event.channel,
-                event.dedup_key or "-",
-                candidate.title[:80],
-            )
+            self.logger.warning(_build_send_failed_log(event, candidate, self.feishu_sender))
             return False
 
         self.dedup_adapter.record_sent(candidate, now)
         self.stats["sent_success"] += 1
-        self.logger.info(
-            "[websocket][pipeline] sent channel=%s dedup_key=%s title=%s",
-            event.channel,
-            event.dedup_key or "-",
-            candidate.title[:80],
-        )
+        self.logger.info(_build_sent_log(event, candidate))
         return True
 
 

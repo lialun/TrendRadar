@@ -43,6 +43,10 @@ class RealtimeFeishuSender:
     def enabled(self) -> bool:
         return bool(self._account_urls())
 
+    @property
+    def target_count(self) -> int:
+        return len(self._account_urls())
+
     def _account_urls(self) -> list[str]:
         accounts = parse_multi_account_config(self.webhook_config)
         accounts = [item for item in accounts if item]

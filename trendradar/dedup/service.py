@@ -172,12 +172,7 @@ class DedupService:
     ) -> Optional[Dict[str, Any]]:
         for accepted in accepted_candidates:
             if has_same_dedup_key(candidate.__dict__, accepted.__dict__):
-                return {
-                    "reason": "dedup_key",
-                    "scope": "accepted",
-                    "matched_title": accepted.title,
-                    "matched_region": accepted.region_type,
-                }
+                return self._build_duplicate_info(accepted, reason="dedup_key", scope="accepted")
             require_same_source = (
                 candidate.region_type == "standalone"
                 and accepted.region_type == "standalone"
@@ -189,30 +184,15 @@ class DedupService:
                     reason = "standalone_seen_in_complex"
                 else:
                     reason = "exact"
-                return {
-                    "reason": reason,
-                    "scope": "accepted",
-                    "matched_title": accepted.title,
-                    "matched_region": accepted.region_type,
-                }
+                return self._build_duplicate_info(accepted, reason=reason, scope="accepted")
 
         for record in history_records:
             if has_same_dedup_key(candidate.__dict__, record.__dict__):
-                return {
-                    "reason": "dedup_key",
-                    "scope": "history",
-                    "matched_title": record.title,
-                    "matched_region": record.region_type,
-                }
+                return self._build_duplicate_info(record, reason="dedup_key", scope="history")
             require_same_source = candidate.region_type == "standalone"
             if is_exact_duplicate(candidate.__dict__, record.__dict__, require_same_source=require_same_source):
                 reason = "standalone_same_source" if candidate.region_type == "standalone" else "exact"
-                return {
-                    "reason": reason,
-                    "scope": "history",
-                    "matched_title": record.title,
-                    "matched_region": record.region_type,
-                }
+                return self._build_duplicate_info(record, reason=reason, scope="history")
 
         if candidate.region_type == "standalone":
             return None
@@ -226,6 +206,11 @@ class DedupService:
                     "title": accepted.title,
                     "fact_signature": accepted.fact_signature,
                     "embedding": accepted.embedding,
+                    "region_type": accepted.region_type,
+                    "dedup_key": accepted.dedup_key,
+                    "normalized_title": accepted.normalized_title,
+                    "url": accepted.url,
+                    "platform_id": accepted.platform_id,
                 }
             )
         for record in history_records:
@@ -236,6 +221,11 @@ class DedupService:
                     "title": record.title,
                     "fact_signature": record.fact_signature,
                     "embedding": record.embedding,
+                    "region_type": record.region_type,
+                    "dedup_key": record.dedup_key,
+                    "normalized_title": record.normalized_title,
+                    "url": record.url,
+                    "platform_id": record.platform_id,
                 }
             )
 
@@ -260,14 +250,43 @@ class DedupService:
                 rerank_threshold=self.config.get("RERANK_THRESHOLD", 0.95),
                 strict_time_conflict=self.config.get("STRICT_TIME_CONFLICT", True),
             ):
-                return {
-                    "reason": "semantic",
-                    "scope": "semantic",
-                    "matched_title": recalled_item.get("title", ""),
-                    "score": round(score, 4),
-                }
+                return self._build_duplicate_info(
+                    recalled_item,
+                    reason="semantic",
+                    scope="semantic",
+                    score=score,
+                )
 
         return None
+
+    def _build_duplicate_info(
+        self,
+        matched: Any,
+        *,
+        reason: str,
+        scope: str,
+        score: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        info = {
+            "reason": reason,
+            "scope": scope,
+            "matched_title": self._get_match_field(matched, "title"),
+            "matched_region": self._get_match_field(matched, "region_type"),
+            "matched_dedup_key": self._get_match_field(matched, "dedup_key"),
+            "matched_normalized_title": self._get_match_field(matched, "normalized_title"),
+            "matched_fact_signature": self._get_match_field(matched, "fact_signature", {}),
+            "matched_url": self._get_match_field(matched, "url"),
+            "matched_platform_id": self._get_match_field(matched, "platform_id"),
+        }
+        if score is not None:
+            info["score"] = round(score, 4)
+        return info
+
+    @staticmethod
+    def _get_match_field(matched: Any, field: str, default: Any = "") -> Any:
+        if isinstance(matched, dict):
+            return matched.get(field, default)
+        return getattr(matched, field, default)
 
     def _load_recent_records(self, now_str: str) -> List[StoredRecord]:
         self._ensure_store()
