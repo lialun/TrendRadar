@@ -7,7 +7,7 @@ TrendRadar - 热点新闻聚合与分析工具
   trendradar                  # 安装后执行
 """
 
-__version__ = "6.6.1"
+__version__ = "6.10.0"
 __all__ = ["AppContext", "__version__"]
 
 
