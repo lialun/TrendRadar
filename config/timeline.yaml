@@ -394,6 +394,42 @@ presets:
 #     晚间汇总 19:00-21:00：推送 ✓ | 分析 ✓ | daily
 #     其余时间走默认配置（静默采集）
 
+  my_custom:
+    name: 我的自定义配置
+    description: 全天新增 + 晚间当日汇总。
+    default:
+      collect: true
+      analyze: false
+      ai_mode: "current"
+      push: true
+      report_mode: "incremental"
+      once:
+        analyze: false
+        push: false
+    periods:
+      evening_summary:
+        name: 晚间汇总
+        start: "22:00"
+        end: "22:10"
+        analyze: true
+        ai_mode: daily
+        report_mode: daily
+        once:
+          analyze: true
+          push: true
+    day_plans:
+      all_day:
+        periods:
+          - evening_summary
+    week_map:
+      1: all_day
+      2: all_day
+      3: all_day
+      4: all_day
+      5: all_day
+      6: all_day
+      7: all_day
+
 custom:
   name: "自定义"
   description: "完全自由定义时间段、日计划和周映射。"
