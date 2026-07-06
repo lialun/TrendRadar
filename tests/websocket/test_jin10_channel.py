@@ -27,6 +27,37 @@ class Jin10ChannelTest(unittest.TestCase):
         self.assertEqual("标题A", event.title)
         self.assertEqual("正文B", event.content)
 
+    def test_hot_changed_ignores_non_new_actions(self):
+        events = []
+        channel = Jin10Channel(
+            {"URL": "wss://example.test/socket"},
+            logger=_FakeLogger(),
+            event_callback=events.append,
+        )
+
+        channel._handle_hot_changed(
+            {
+                "event": "flash-hot-changed",
+                "data": [
+                    {
+                        "id": "old",
+                        "time": "2026-04-16 10:00:00",
+                        "data": {"title": "旧消息修改", "content": "不应推送"},
+                        "action": 2,
+                    },
+                    {
+                        "id": "new",
+                        "time": "2026-04-16 10:01:00",
+                        "data": {"title": "新消息", "content": "应推送"},
+                        "action": 1,
+                    },
+                ],
+            },
+            msg_id=1000,
+        )
+
+        self.assertEqual(["new"], [event.source_message_id for event in events])
+
     def test_key_exchange_accepts_packet_with_extra_trailing_bytes(self):
         channel = Jin10Channel(
             {"URL": "wss://example.test/socket"},

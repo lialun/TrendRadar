@@ -196,6 +196,15 @@ class Jin10Channel(WebSocketChannelClient):
     def _handle_hot_changed(self, payload: Dict[str, Any], msg_id: int) -> None:
         items = payload.get("data", [])
         for item in items:
+            action = item.get("action")
+            if action is not None and action != 1:
+                self.logger.info(
+                    "[websocket][jin10] ignored_action action=%s msg_id=%s news_id=%s",
+                    action,
+                    msg_id,
+                    item.get("id"),
+                )
+                continue
             event = self._build_realtime_event(msg_id=msg_id, payload=item)
             if event is not None:
                 self.emit_event(event)
