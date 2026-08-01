@@ -10,7 +10,7 @@ import json
 import queue
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, Optional
 
 from trendradar.websocket.channels.jin10 import Jin10Channel
@@ -48,6 +48,20 @@ def _preview_text(value: str, limit: int = 80) -> str:
     if len(text) <= limit:
         return text
     return f"{text[: max(1, limit - 3)]}..."
+
+
+def _parse_published_at(published_at: str) -> Optional[datetime]:
+    """Parse a Jin10 published_at string ("YYYY-MM-DD HH:MM:SS", Beijing UTC+8).
+
+    Returns an aware datetime, or None if the string is absent / unparseable.
+    """
+    if not published_at:
+        return None
+    try:
+        dt = datetime.strptime(published_at.strip(), "%Y-%m-%d %H:%M:%S")
+        return dt.replace(tzinfo=timezone(timedelta(hours=8)))
+    except Exception:
+        return None
 
 
 def _build_duplicate_log(event: RealtimeEvent, candidate, duplicate: Dict[str, object]) -> str:
@@ -120,14 +134,17 @@ class RealtimePipeline:
         logger,
         now_func: Callable[[], datetime],
         event_callback: Optional[Callable[[RealtimeEvent], None]] = None,
+        stale_max_age_seconds: int = 3600,
     ):
         self.dedup_adapter = dedup_adapter
         self.feishu_sender = feishu_sender
         self.logger = logger
         self.now_func = now_func
         self.event_callback = event_callback
+        self.stale_max_age_seconds = stale_max_age_seconds
         self.stats = {
             "total_received": 0,
+            "filtered_stale": 0,
             "filtered_duplicate": 0,
             "sent_success": 0,
             "sent_failed": 0,
@@ -139,6 +156,25 @@ class RealtimePipeline:
             self.event_callback(event)
 
         now = self.now_func()
+
+        # Staleness check: drop events whose published_at is older than the threshold.
+        # This guards against hot-changed events or server backfills replaying old flashes.
+        pub_dt = _parse_published_at(event.published_at)
+        if pub_dt is not None:
+            age_seconds = (now - pub_dt).total_seconds()
+            if age_seconds > self.stale_max_age_seconds:
+                self.stats["filtered_stale"] += 1
+                self.logger.info(
+                    "[websocket][pipeline] stale_event channel=%s dedup_key=%s "
+                    "published_at=%s age_seconds=%.0f threshold=%s",
+                    event.channel,
+                    event.dedup_key or "-",
+                    event.published_at,
+                    age_seconds,
+                    self.stale_max_age_seconds,
+                )
+                return False
+
         candidate, duplicate = self.dedup_adapter.check(event, now)
         if duplicate:
             self.stats["filtered_duplicate"] += 1
@@ -212,6 +248,7 @@ class WebSocketRuntime:
             logger=self.logger,
             now_func=now_func,
             event_callback=event_callback,
+            stale_max_age_seconds=int(config.get("STALE_MAX_AGE_SECONDS", 3600)),
         )
 
     @property
