@@ -52,3 +52,31 @@ class TextFeatureTest(unittest.TestCase):
         left = extract_fact_signature("无锡发布新政策")
         right = extract_fact_signature("无锡发布新政策解读")
         self.assertFalse(has_fact_conflict(left, right, strict_time_conflict=True))
+
+    def test_new_number_in_current_counts_as_new_development(self):
+        """current has a specific number the historical record lacks → new development → conflict.
+
+        This prevents a follow-up story (e.g. "8 tankers diverted") from being silently
+        deduped against a vague earlier report (e.g. "Houthis announce blockade") that
+        never mentioned a concrete number.
+        """
+        left = extract_fact_signature("已有8艘沙特油轮被迫改变航线绕行好望角")
+        right = extract_fact_signature("胡塞武装宣布对沙特实施海上封锁")
+        self.assertTrue(has_fact_conflict(left, right, strict_time_conflict=True))
+
+    def test_historical_more_specific_than_current_is_not_conflict(self):
+        """historical record is more specific than current article → no conflict.
+
+        If the current article is a vague summary of something the historical record
+        covered in detail, we do not declare a conflict – the current may legitimately
+        be a brief re-mention of the same event.
+        """
+        left = extract_fact_signature("胡塞武装宣布对沙特实施海上封锁")
+        right = extract_fact_signature("已有8艘沙特油轮被迫改变航线绕行好望角")
+        self.assertFalse(has_fact_conflict(left, right, strict_time_conflict=True))
+
+    def test_same_numbers_in_both_is_not_conflict(self):
+        """Both sides mention the same number → consistent, no conflict."""
+        left = extract_fact_signature("8艘沙特油轮改变航线")
+        right = extract_fact_signature("沙特8艘油轮绕行好望角")
+        self.assertFalse(has_fact_conflict(left, right, strict_time_conflict=True))

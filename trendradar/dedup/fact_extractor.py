@@ -66,10 +66,22 @@ def has_fact_conflict(left: Dict, right: Dict, strict_time_conflict: bool) -> bo
 
 
 def _conflicting_values(left_values, right_values) -> bool:
+    """Detect a fact conflict between the *current* (left) and a *historical* (right) record.
+
+    The check is intentionally asymmetric:
+    - left non-empty, right empty  → current introduces new specific facts the historical
+      record does not have; treat as a new development (True = conflict, not a duplicate).
+    - left empty                   → current is vaguer than the historical; it may simply
+      omit a detail without contradicting it (False = no conflict).
+    - both non-empty and disjoint  → genuine numeric/factual conflict (True).
+    - both non-empty and overlapping → same facts, consistent (False).
+    """
     left_set = {value for value in left_values if value}
     right_set = {value for value in right_values if value}
-    if not left_set or not right_set:
-        return False
+    if not left_set:
+        return False   # current has no facts of this type – no conflict
+    if not right_set:
+        return True    # current has new facts the historical record lacks – new development
     return left_set.isdisjoint(right_set)
 
 
