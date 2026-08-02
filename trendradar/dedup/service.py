@@ -188,6 +188,8 @@ class DedupService:
 
         for record in history_records:
             if has_same_dedup_key(candidate.__dict__, record.__dict__):
+                if self._is_significant_update(candidate.title, record.title):
+                    continue  # content is much richer than what was sent – treat as update
                 return self._build_duplicate_info(record, reason="dedup_key", scope="history")
             require_same_source = candidate.region_type == "standalone"
             if is_exact_duplicate(candidate.__dict__, record.__dict__, require_same_source=require_same_source):
@@ -258,6 +260,26 @@ class DedupService:
                 )
 
         return None
+
+    def _is_significant_update(self, new_text: str, old_text: str) -> bool:
+        """Return True when new_text is substantially richer than old_text.
+
+        A re-send is allowed when ALL of the following hold:
+          - CONTENT_UPDATE_RATIO_THRESHOLD > 0 and CONTENT_UPDATE_MIN_CHARS > 0 (feature enabled)
+          - len(new) >= len(old) * ratio  (proportionally longer)
+          - len(new) - len(old) >= min_chars  (absolutely longer)
+
+        Set either threshold to 0 in config to disable this behaviour entirely.
+        """
+        ratio = float(self.config.get("CONTENT_UPDATE_RATIO_THRESHOLD", 2.0))
+        min_chars = int(self.config.get("CONTENT_UPDATE_MIN_CHARS", 100))
+        if ratio <= 0 or min_chars <= 0:
+            return False
+        new_len = len(new_text or "")
+        old_len = len(old_text or "")
+        if old_len == 0:
+            return False
+        return new_len >= old_len * ratio and (new_len - old_len) >= min_chars
 
     def _build_duplicate_info(
         self,
